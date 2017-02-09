@@ -4,14 +4,9 @@
 var path = require('path')
 , through = require('through2')
 , chalk = require('chalk')
-, objectAssign = require('object-assign')
 , PluginError = require('gulp-util').PluginError
 , del = require('del')
-, Promise = require('lie')
 ;
-
-Promise.prototype.catchTo = Promise.prototype['catch'];
-Promise.prototype.trap = Promise.prototype.catchTo;
 
 module.exports = function (destPath, exclude, exclOpts) {
   var parentsToExclude = {}
@@ -24,7 +19,7 @@ module.exports = function (destPath, exclude, exclOpts) {
   , extReplacer
   ;
 
-  exclOpts = objectAssign({}, exclOpts);
+  exclOpts = Object.assign({}, exclOpts);
 
   verbose = exclOpts.verbose;
   delete exclOpts.verbose;
