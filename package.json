@@ -7,7 +7,7 @@
     "email": "ruslanjf@gmail.com"
   },
   "engines": {
-    "node": ">=0.10.0"
+    "node": ">=6.0.0"
   },
   "repository": {
     "type": "git",
@@ -15,7 +15,7 @@
   },
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "mocha test.js"
   },
   "keywords": [
     "gulp",
@@ -35,9 +35,13 @@
   "homepage": "https://github.com/DiamondeX/gulp-dest-clean",
   "license": "MIT",
   "dependencies": {
-    "chalk": "^1.1.1",
     "del": "^2.1.0",
     "gulp-util": "^3.0.7",
     "through2": "^2.0.0"
+  },
+  "devDependencies": {
+    "mocha": "^3.2.0",
+    "rewire": "^2.5.2",
+    "sinon": "^1.17.7"
   }
 }
