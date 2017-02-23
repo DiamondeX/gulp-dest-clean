@@ -1,183 +1,112 @@
-/*jslint node:true, white:true */
 'use strict';
 
-var path = require('path')
-, through = require('through2')
-, chalk = require('chalk')
-, objectAssign = require('object-assign')
-, PluginError = require('gulp-util').PluginError
-, del = require('del')
-, Promise = require('lie')
-;
+var path = require('path');
+var through = require('through2');
+var gutil = require('gulp-util');
+var del = require('del');
 
-Promise.prototype.catchTo = Promise.prototype['catch'];
-Promise.prototype.trap = Promise.prototype.catchTo;
+const PLUGIN_NAME = 'gulp-dest-clean';
 
-module.exports = function (destPath, exclude, exclOpts) {
-  var parentsToExclude = {}
-  , srcPath
-  , PLUGIN_NAME = "gulp-dest-clean"
-  , win32 = process.platform === "win32"
-  , verbose
-  , ext
-  , extLen
-  , extReplacer
-  ;
+function destClean(destPath, options = {}) {
+  var delPatterns = new Set();
 
-  exclOpts = objectAssign({}, exclOpts);
+  var extensions = options.extension;
+  var exclude = options.exclude;
+  var dryRun = options.dryRun || false;
 
-  verbose = exclOpts.verbose;
-  delete exclOpts.verbose;
+  // Process destPath
+  if (typeof destPath !== 'string') {
+    throw new gutil.PluginError(PLUGIN_NAME, '"destPath" parameter required');
+  }
+  if (destPath.includes('*')) {
+    throw new gutil.PluginError(PLUGIN_NAME, '"destPath" parameter must not contain "*"');
+  }
+  delPatterns.add(path.join(destPath, '/**'));
+  delPatterns.add('!' + destPath);
 
-  ext = exclOpts.ext;
-  delete exclOpts.ext;
-
-  if(!destPath || typeof destPath !== "string") {
-    return through.obj(function (file, enc, cb) { cb(null, file); }, function(cb){
-      console.log(chalk.bold.red(PLUGIN_NAME) + ": " + chalk.blue("destPath") + ' parameter required!');
-      this.emit('error', new PluginError(PLUGIN_NAME,'"destPath" parameter required!'));
-      cb();
-    });
+  // Generalize options.extension
+  if (typeof extensions === 'string') {
+    extensions = [extensions];
+  }
+  if (Array.isArray(extensions)) {
+    extensions = {'': extensions};
+  }
+  if (extensions) {
+    for (let key in extensions) {
+      if (!Array.isArray(extensions[key])) {
+        extensions[key] = [extensions[key]];
+      }
+    }
   }
 
-  srcPath = destPath;
-  destPath = srcPath.replace(/\/?[\x00-.0-\uffff]*\*[\d\D]*/, ""); //  "[\d\D]" = ".",  "[\x00-.0-\uffff]" = "[^\/]"
-  if(srcPath !== destPath){
-    return through.obj(function (file, enc, cb) { cb(null, file); }, function(cb){
-      console.log(chalk.bold.red(PLUGIN_NAME) + ": " + chalk.blue("destPath") + ' parameter must not contain ' + chalk.red("*") + '!');
-      this.emit('error', new PluginError(PLUGIN_NAME, '"destPath" parameter must not contain "*"!'));
-      cb();
-    });
-  }
-  srcPath = path.join(srcPath, "/**");
-
-  function excludeParents(file){
-    var parent = path.dirname(file);
-    while(!parentsToExclude[parent]){
-      parentsToExclude[parent] = 1;
+  /**
+   * Helper to add as exclussion to the delPatterns the passed path and every
+   * parent directory
+   */
+  function excludePathAndParents(parent) {
+    while (!delPatterns.has('!' + parent)) {
+      delPatterns.add('!' + parent);
       parent = path.dirname(parent);
     }
   }
 
-  function getSrcStats(vinylFile){
-    if(verbose) { console.log("stat is "+(vinylFile.stat ? "present" : "loaded")); }
-    return vinylFile.stat ? Promise.resolve(vinylFile.stat) : new Promise(function(resolve, reject){
-      fs.stat(vinylFile.path, function(err, stats){
-        err ? reject(err) : resolve(stats);
-      });
-    });
-  }
-
-  if(typeof exclude === "string") {
+  // Add explicitely excluded paths
+  if (typeof exclude === 'string') {
     exclude = [exclude];
   }
-
-  if(!Array.isArray(exclude)){
+  if (!Array.isArray(exclude)) {
     exclude = [];
   }
-
-  exclude = exclude.map(function(v){
-    if(v.slice(0, 1) === "!") {
-      return path.join(destPath, v.slice(1));
+  exclude.map(pattern => {
+    if (pattern.startsWith('!')) {
+      return path.join(destPath, pattern.slice(1));
     }
-
-    excludeParents(v);
-    return "!" + path.join(destPath, v);
+    return path.join(destPath, pattern);
+  }).forEach(pattern => {
+    excludePathAndParents(pattern);
   });
 
-  exclude = [].concat(srcPath, exclude);
-
-  extReplacer = function(cb, file, p) {
-    exclude.push("!" + path.join(destPath, p));
-
-    cb(0, file);
-  };
-
-  if(ext){
-    if(typeof ext === "string"){
-
-      ext = "." + ext.replace(/^\./, "");
-
-      extReplacer = function(cb, file, p) {
-        getSrcStats(file).then(function(stats){
-          var isFile = !stats.isDirectory();
-          if (isFile) {
-            p = p.replace(/\.\w*$/, ext);
-            if(verbose) { console.log("replaced to:", p); }
-          }
-          exclude.push("!" + path.join(destPath, p));
-          cb(0, file);
+  function replaceExtension(file) {
+    if (file.stat.isDirectory() || !extensions) {
+      return [file.relative];
+    }
+    for (let oldExtension in extensions) {
+      if (file.relative.includes(oldExtension)) {
+        return extensions[oldExtension].map(newExtension => {
+          return gutil.replaceExtension(file.relative, newExtension);
         });
-      };
-
-    } else {
-      if(typeof ext === "object") {
-
-        (function () {
-          var ext2 = {};
-          Object.keys(ext).forEach(function(from, to){
-            to = "." + ext[from].replace(/^\./, "");
-            from = "." + from.replace(/^\./, "");
-            ext2[from] = to;
-          });
-          ext = ext2;
-          if(verbose) { console.log("ext replacements:", JSON.stringify(ext, 0, 2)); }
-        } ());
-
-        extReplacer = function(cb, file, p) {
-          getSrcStats(file).then(function(stats){
-            var isFile = !stats.isDirectory()
-            , extName = p.match(/\.\w*$/);
-            ;
-
-            extName = extName && extName[0];
-
-            if(verbose) { console.log("processing:", p, "isFile:", isFile, "extname:", extName); }
-            if (isFile && ext[extName]) {
-              p = p.slice(0, -extName.length) + ext[extName];
-              if(verbose) { console.log("replaced from:", extName, "to:", p); }
-            }
-            exclude.push("!" + path.join(destPath, p));
-            cb(0, file);
-          });
-        };
       }
     }
+  }
+
+  function excludeFile(file) {
+    replaceExtension(file).forEach(fileName => {
+      delPatterns.add('!' + path.join(destPath, fileName));
+    });
   }
 
   return through.obj(function (file, enc, cb) {
-    var p = file.relative;
-
-    p = win32 ? p.replace(/\\/g, "/") : p;
-
-    excludeParents(p);
-
-    extReplacer(cb, file, p);
-
+    excludePathAndParents(path.join(destPath, path.dirname(file.relative)));
+    excludeFile(file);
+    cb(null, file);
   }, function (cb){
     var stream = this;
-    Object.keys(parentsToExclude).forEach(function(dir){
-      exclude.push("!" + path.join(destPath, dir));
-    });
-
-    if (verbose) {
-      console.log(chalk.cyan(PLUGIN_NAME) + ": patterns for `del`:", "\n" + exclude.join("\n"));
+    if (dryRun) {
+      gutil.log('Patterns for `del`:');
+      gutil.log('\n', Array.from(delPatterns).join('\n '));
     }
-
-    del(exclude, exclOpts).then(function(deleted){
-
+    del(Array.from(delPatterns), {dryRun: dryRun}).then(deleted => {
       stream.deleted = deleted;
-
-      if (verbose) {
-        if(deleted.length) {
-          console.log(chalk.cyan(PLUGIN_NAME) + ": deleted:", "\n" + deleted.join("\n"));
-        } else {
-          console.log(chalk.cyan(PLUGIN_NAME) + ": nothing to delete");
-        }
+      gutil.log(
+        gutil.colors.magenta(PLUGIN_NAME),
+        'Deleted ' + deleted.length + ' files and/or directories'
+      );
+      if (dryRun) {
+        gutil.log('\n', deleted.join('\n '));
       }
-
       cb();
     });
   });
+}
 
-};
+module.exports = destClean;
