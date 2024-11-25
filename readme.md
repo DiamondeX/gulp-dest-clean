@@ -4,6 +4,9 @@
 
 Though, there is other ways to remove some files or folders from the destination or any other folder, this plugin will make it more comfortable in certain cases and the code of build file more readable.
 
+> [!IMPORTANT]
+> I don't have time to support this plugin anymore, but if you have suggestions on how to improve it, you can create a PR request and I will try to review and approve it.
+
 ## Install
 
 Install with [npm](https://npmjs.org/package/gulp-dest-clean).
